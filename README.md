@@ -385,6 +385,7 @@ OpenMontage/
 ├── schemas/            # 15 JSON Schemas (contract validation)
 ├── styles/             # Visual style playbooks (YAML)
 ├── remotion-composer/  # React/Remotion video composition engine
+├── server/             # Remote MCP + HTTP API for headless job delegation (see docs/REMOTE_API.md)
 ├── lib/                # Core infrastructure (config, checkpoints, pipeline loader)
 └── tests/              # Contract tests, QA integration tests, eval harness
 ```
@@ -601,6 +602,47 @@ OpenMontage works with any AI coding assistant that can read files and execute P
 All platform files point to the shared `AGENT_GUIDE.md` (operating guide and agent contract) and `PROJECT_CONTEXT.md` (architecture reference).
 
 > **Coming soon:** Local LLM support via **Ollama** and **LM Studio** — run the full production pipeline without any cloud LLM.
+
+---
+
+## Remote API — Drive OpenMontage From Another Agent (MCP)
+
+> **Fork addition.** Not in upstream — see [`docs/REMOTE_API.md`](docs/REMOTE_API.md) for the full design, security model, and a production deployment (reverse proxy + TLS, systemd, Tailscale).
+
+Run OpenMontage as a service so a **remote, MCP-native agent** — e.g. [Hermes](https://github.com/NousResearch/hermes-agent), or anything that speaks the [Model Context Protocol](https://modelcontextprotocol.io) — can delegate full video jobs to a GPU box and fetch the results, without copying the project or running the pipeline locally.
+
+The idea is **full-job delegation**: because OpenMontage's intelligence lives in the skills the agent reads (not in Python), the server runs a *headless agent on the host* that performs the pipeline. The remote client just submits intent, approves gates, and downloads the render. The shape is an **MCP control plane + an HTTP data plane** — *"MCP for the doorbell, HTTP for the delivery truck."*
+
+| MCP tool | Purpose |
+|----------|---------|
+| `list_capabilities` | what this box can produce right now (the live provider menu) |
+| `submit_video_job` | queue a job from a brief (`approval_mode`: `autonomous` or `interactive`) |
+| `get_job_status` | poll status / stage / cost / pending checkpoint |
+| `respond_to_checkpoint` | approve / revise / abort at a creative gate (interactive mode) |
+| `get_artifacts` | list outputs with signed, header-free download URLs |
+| `fetch_artifact` | download bytes over MCP (base64, paged) when the client can't make HTTP requests |
+| `cancel_job` | cancel a job — terminates the running agent and frees the worker |
+| `list_jobs` | enumerate / recover jobs |
+
+**Run the server** (on the machine with the GPU + providers):
+
+```bash
+pip install -r requirements-server.txt     # adds uvicorn, mcp, claude-agent-sdk
+export OPENMONTAGE_API_TOKEN=$(openssl rand -hex 32)
+export AGENT_BACKEND=cli                     # reuse a local `claude` login (or =sdk with ANTHROPIC_API_KEY)
+make serve                                   # uvicorn on :8787  (make serve-dry = key-free smoke test)
+```
+
+**Connect a client** — point any MCP client at the streamable-HTTP endpoint with a bearer token:
+
+```yaml
+openmontage:
+  url: "https://your-host/mcp"
+  headers:
+    Authorization: "Bearer <OPENMONTAGE_API_TOKEN>"
+```
+
+Then: `submit_video_job` → poll `get_job_status` → (`respond_to_checkpoint` for interactive jobs) → `get_artifacts` → download. It's backed by the same pipelines, tools, and governance as a local run — the remote path and the interactive path are identical. A built-in **watchdog** kills stalled jobs so one hung run can't jam the queue, and `OPENMONTAGE_API_TOKEN` gates every request (run it behind TLS).
 
 ---
 

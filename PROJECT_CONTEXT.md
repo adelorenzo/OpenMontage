@@ -29,6 +29,7 @@ Agent reads pipeline manifest (YAML) → reads stage director skill (MD)
 - **Stage director skills:** `skills/pipelines/<pipeline>/<stage>-director.md`
 - **Meta skills:** `skills/meta/*.md` (reviewer, checkpoint-protocol, skill-creator)
 - **Architecture deep-dive:** `docs/ARCHITECTURE.md`
+- **Remote API (MCP server — fork addition):** `docs/REMOTE_API.md` — drive OpenMontage from a remote, MCP-native agent
 
 ## Knowledge Architecture (3 Layers)
 
@@ -79,6 +80,11 @@ Each tool's `agent_skills[]` field bridges Layer 1 → Layer 3. See `skills/INDE
 | `skills/core/hyperframes.md` | Layer 2 — when OpenMontage should pick HyperFrames vs Remotion, artifact → workspace mapping |
 | `schemas/styles/playbook.schema.json` | Playbook schema v2 with design tokens (chart_palette, scale_system, weight_matrix, color_rules) |
 | `tests/qa/` | Quality validation test scripts for tool-by-tool output inspection |
+| `server/mcp_server.py` | **(fork)** FastMCP control plane — 8 tools: list_capabilities, submit_video_job, get_job_status, respond_to_checkpoint, get_artifacts, fetch_artifact, cancel_job, list_jobs |
+| `server/jobs.py` | **(fork)** Job store (`projects/<id>/job.json`), async queue, single-GPU worker, inactivity watchdog, status machine |
+| `server/agent_runner.py` | **(fork)** Headless agent backends (cli / sdk / dry_run); session capture+resume; cancel terminates the agent process group |
+| `server/app.py` | **(fork)** Starlette ASGI app — mounts `/mcp` + `/artifacts` (signed URLs) + `/healthz`, bearer auth |
+| `docs/REMOTE_API.md` | **(fork)** Full remote-API design, security model, and production deployment guide |
 
 ## Available Pipelines
 
