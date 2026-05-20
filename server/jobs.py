@@ -501,6 +501,20 @@ class JobStore:
         sig = sign_artifact(token, job_id, rel, exp)
         return f"{base}?exp={exp}&sig={sig}"
 
+    def artifact_path(self, job_id: str, rel: str) -> Optional[Path]:
+        """Resolve a job-relative artifact path with a traversal guard.
+        Returns the real file Path, or None if missing/outside the workspace."""
+        base = self._job_dir(job_id).resolve()
+        try:
+            target = (base / rel).resolve()
+        except Exception:
+            return None
+        if target != base and base not in target.parents:
+            return None
+        if not target.is_file() or target.name == "job.json":
+            return None
+        return target
+
     def list_artifacts(self, job_id: str) -> list[dict]:
         base = self._job_dir(job_id)
         out: list[dict] = []

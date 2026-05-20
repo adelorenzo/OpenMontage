@@ -115,7 +115,7 @@ process). v1 does not auto-resume interrupted jobs; Hermes can resubmit. This is
 
 ---
 
-## 4. MCP control plane (the 7 tools)
+## 4. MCP control plane (the 8 tools)
 
 Mounted at `/mcp` via `FastMCP(streamable_http_path="/")`. All are thin wrappers over `JobStore` and the tool
 registry — they hold no creative logic.
@@ -127,14 +127,20 @@ registry — they hold no creative logic.
 | `get_job_status` | `job_id:str` | `{status, stage, awaiting_human, pending_checkpoint?, cost_usd, error?, artifacts[]}` | poll this |
 | `respond_to_checkpoint` | `job_id:str`, `decision:"approve"\|"revise"\|"abort"`, `notes?:str` | `{job_id, status}` | resumes the agent session |
 | `get_artifacts` | `job_id:str` | `{artifacts:[{path,kind,bytes,url}]}` | each `url` is a **signed, header-free** download link (time-limited) on the HTTP data plane |
+| `fetch_artifact` | `job_id:str`, `path:str`, `offset?:int`, `max_bytes?:int` | base64 chunk + `{size_bytes,eof,next_offset,…}` | **download bytes over MCP itself** (no HTTP needed) — for clients that can only make tool calls; page with `next_offset` until `eof` |
 | `cancel_job` | `job_id:str` | `{job_id, status}` | cancels queued/awaiting; **terminates the running agent** (cli backend) so the worker frees and the queue keeps moving |
 | `list_jobs` | `status?:str`, `limit?:int` | `{count, jobs[]}` | enumerate/recover jobs (newest first), optionally filtered by status |
 
 `list_capabilities` is backed directly by `registry.provider_menu_summary()` — the same human-ready rollup the
 preflight uses — so Hermes sees exactly what a local operator would, with **zero extra glue**.
 
-`get_artifacts` returns absolute URLs of the form `{PUBLIC_BASE_URL}/artifacts/{job_id}/{relpath}`. Bytes
-never traverse the MCP/JSON-RPC channel.
+`get_artifacts` returns absolute URLs of the form `{PUBLIC_BASE_URL}/artifacts/{job_id}/{relpath}`.
+
+Two ways for a client to actually get the bytes:
+1. **HTTP (preferred):** fetch the signed `url` from `get_artifacts` — no header, no context cost, any size.
+2. **Over MCP (for clients with no HTTP capability):** call `fetch_artifact(job_id, path)`, which returns
+   base64 in the tool result and pages via `offset`/`next_offset`. Convenient when the consumer can only
+   make MCP tool calls, at the cost of carrying the bytes through the MCP/JSON-RPC channel.
 
 ---
 

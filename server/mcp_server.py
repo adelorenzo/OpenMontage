@@ -7,7 +7,9 @@ at /mcp by server/app.py via FastMCP's streamable-HTTP transport.
 
 from __future__ import annotations
 
+import base64
 import logging
+import mimetypes
 from typing import Optional
 
 from mcp.server.fastmcp import FastMCP
@@ -140,14 +142,56 @@ async def respond_to_checkpoint(job_id: str, decision: str, notes: Optional[str]
 
 @mcp.tool()
 async def get_artifacts(job_id: str) -> dict:
-    """List a job's output files with HTTP download URLs.
-
-    Each entry: {path, kind, bytes, url}. Download the bytes from `url`
-    (the /artifacts data plane, same bearer token, supports HTTP range)."""
+    """List a job's output files. Each entry: {path, kind, bytes, url}, where `url`
+    is a signed, header-free download link. To get the bytes WITHOUT making an HTTP
+    request, call fetch_artifact (returns base64 over MCP)."""
     store = get_store()
     if store.status(job_id) is None:
         return {"error": f"unknown job_id {job_id!r}"}
     return {"job_id": job_id, "artifacts": store.list_artifacts(job_id)}
+
+
+_MAX_CHUNK_BYTES = 8_000_000  # hard cap per fetch_artifact call
+
+
+@mcp.tool()
+async def fetch_artifact(job_id: str, path: str, offset: int = 0, max_bytes: int = 4_000_000) -> dict:
+    """Download an artifact's bytes directly over MCP (base64) — for clients that
+    cannot make HTTP GETs. Returns the chunk starting at `offset`; for files larger
+    than the per-call cap, loop using the returned `next_offset` until `eof` is true,
+    concatenating the decoded chunks. If your client CAN fetch HTTP, prefer the signed
+    `url` from get_artifacts instead (no base64/context overhead).
+
+    `path` is the artifact's `path` field from get_artifacts (e.g. 'renders/final.mp4').
+    Returns: {job_id, path, filename, mime_type, size_bytes, offset, length, eof,
+    next_offset, encoding:'base64', content_base64}."""
+    store = get_store()
+    p = store.artifact_path(job_id, path)
+    if p is None:
+        return {"error": f"artifact not found: {job_id}/{path}"}
+    try:
+        size = p.stat().st_size
+        cap = max(1, min(int(max_bytes), _MAX_CHUNK_BYTES))
+        off = max(0, int(offset))
+        with open(p, "rb") as f:
+            f.seek(off)
+            chunk = f.read(cap)
+    except OSError as exc:
+        return {"error": f"could not read artifact: {exc}"}
+    eof = off + len(chunk) >= size
+    return {
+        "job_id": job_id,
+        "path": path,
+        "filename": p.name,
+        "mime_type": mimetypes.guess_type(p.name)[0] or "application/octet-stream",
+        "size_bytes": size,
+        "offset": off,
+        "length": len(chunk),
+        "eof": eof,
+        "next_offset": None if eof else off + len(chunk),
+        "encoding": "base64",
+        "content_base64": base64.b64encode(chunk).decode("ascii"),
+    }
 
 
 @mcp.tool()
