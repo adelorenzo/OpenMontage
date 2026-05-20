@@ -42,6 +42,9 @@ class Settings:
     anthropic_api_key: str | None
     allowed_hosts: tuple[str, ...]  # MCP Host allow-list; empty = DNS-rebinding protection off
     artifact_url_ttl: int           # seconds a signed artifact download URL stays valid
+    job_inactivity_timeout: int     # kill a running job with no fs progress for this long (0 = off)
+    job_max_runtime: int            # absolute per-job runtime cap in seconds (0 = off)
+    watchdog_interval: int          # how often the watchdog scans running jobs
 
     @property
     def auth_configured(self) -> bool:
@@ -81,4 +84,7 @@ def get_settings() -> Settings:
         anthropic_api_key=os.environ.get("ANTHROPIC_API_KEY") or None,
         allowed_hosts=allowed_hosts,
         artifact_url_ttl=_int("OPENMONTAGE_ARTIFACT_URL_TTL", 86400),
+        job_inactivity_timeout=_int("OPENMONTAGE_JOB_INACTIVITY_TIMEOUT", 1800),
+        job_max_runtime=_int("OPENMONTAGE_JOB_MAX_RUNTIME", 0),
+        watchdog_interval=max(5, _int("OPENMONTAGE_WATCHDOG_INTERVAL", 30)),
     )

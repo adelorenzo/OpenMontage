@@ -115,7 +115,7 @@ process). v1 does not auto-resume interrupted jobs; Hermes can resubmit. This is
 
 ---
 
-## 4. MCP control plane (the 6 tools)
+## 4. MCP control plane (the 7 tools)
 
 Mounted at `/mcp` via `FastMCP(streamable_http_path="/")`. All are thin wrappers over `JobStore` and the tool
 registry — they hold no creative logic.
@@ -128,6 +128,7 @@ registry — they hold no creative logic.
 | `respond_to_checkpoint` | `job_id:str`, `decision:"approve"\|"revise"\|"abort"`, `notes?:str` | `{job_id, status}` | resumes the agent session |
 | `get_artifacts` | `job_id:str` | `{artifacts:[{path,kind,bytes,url}]}` | each `url` is a **signed, header-free** download link (time-limited) on the HTTP data plane |
 | `cancel_job` | `job_id:str` | `{job_id, status}` | cancels queued/awaiting; **terminates the running agent** (cli backend) so the worker frees and the queue keeps moving |
+| `list_jobs` | `status?:str`, `limit?:int` | `{count, jobs[]}` | enumerate/recover jobs (newest first), optionally filtered by status |
 
 `list_capabilities` is backed directly by `registry.provider_menu_summary()` — the same human-ready rollup the
 preflight uses — so Hermes sees exactly what a local operator would, with **zero extra glue**.
@@ -234,6 +235,9 @@ so the remote path and the interactive path stay identical.
 | `ANTHROPIC_API_KEY` | — | required when `AGENT_BACKEND=sdk` |
 | `OPENMONTAGE_REPO_ROOT` | repo dir | working directory handed to the agent |
 | `OPENMONTAGE_ALLOWED_HOSTS` | _(unset)_ | comma-sep `Host` allow-list for MCP DNS-rebinding protection. Unset = protection **off** (correct behind a reverse proxy / Tailscale, where the bearer token is the gate). If set, a proxied `Host` not on the list is rejected with `421 Invalid Host header`. |
+| `OPENMONTAGE_ARTIFACT_URL_TTL` | `86400` | seconds a signed `get_artifacts` download URL stays valid |
+| `OPENMONTAGE_JOB_INACTIVITY_TIMEOUT` | `1800` | watchdog kills + fails a running job with no filesystem progress for this long (0 = off) |
+| `OPENMONTAGE_JOB_MAX_RUNTIME` | `0` | absolute per-job runtime cap in seconds (0 = off) |
 
 ---
 

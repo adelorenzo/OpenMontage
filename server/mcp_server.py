@@ -161,3 +161,18 @@ async def cancel_job(job_id: str) -> dict:
     except KeyError:
         return {"error": f"unknown job_id {job_id!r}"}
     return {"job_id": rec.job_id, "status": rec.status}
+
+
+@mcp.tool()
+async def list_jobs(status: Optional[str] = None, limit: int = 50) -> dict:
+    """List jobs on this server (newest first) so you can enumerate or recover job_ids.
+
+    status: optional filter — queued | running | awaiting_human | completed | failed |
+        canceled | interrupted. limit: max results (default 50, cap 500).
+    Each entry: {job_id, status, stage, approval_mode, created_at, updated_at}."""
+    store = get_store()
+    jobs = store.list_jobs()
+    if status:
+        jobs = [j for j in jobs if j.get("status") == status]
+    limit = max(1, min(int(limit), 500))
+    return {"count": len(jobs), "jobs": jobs[:limit]}

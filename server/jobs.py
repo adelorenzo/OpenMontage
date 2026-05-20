@@ -47,6 +47,15 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def _to_epoch(ts: Optional[str]) -> Optional[float]:
+    if not ts:
+        return None
+    try:
+        return datetime.fromisoformat(ts).timestamp()
+    except Exception:
+        return None
+
+
 def slugify(text: str, maxlen: int = 40) -> str:
     text = (text or "").lower()
     text = re.sub(r"[^a-z0-9]+", "-", text).strip("-")
@@ -88,6 +97,7 @@ class JobRecord:
     status: str
     stage: Optional[str] = None
     session_id: Optional[str] = None
+    started_at: Optional[str] = None
     cost_usd: float = 0.0
     error: Optional[str] = None
     pending_checkpoint: Optional[dict] = None
@@ -112,6 +122,7 @@ class JobRecord:
             "status": self.status,
             "stage": self.stage,
             "session_id": self.session_id,
+            "started_at": self.started_at,
             "cost_usd": self.cost_usd,
             "error": self.error,
             "pending_checkpoint": self.pending_checkpoint,
@@ -132,6 +143,7 @@ class JobRecord:
             status=data.get("status", STATUS_QUEUED),
             stage=data.get("stage"),
             session_id=data.get("session_id"),
+            started_at=data.get("started_at"),
             cost_usd=data.get("cost_usd", 0.0),
             error=data.get("error"),
             pending_checkpoint=data.get("pending_checkpoint"),
@@ -148,6 +160,7 @@ class JobStore:
         self._pending_resume: dict[str, tuple[str, Optional[str]]] = {}
         self._queue: Optional[asyncio.Queue] = None
         self._workers: list[asyncio.Task] = []
+        self._watchdog_task: Optional[asyncio.Task] = None
         self._started = False
 
     # ---- paths / persistence ----
@@ -183,10 +196,24 @@ class JobStore:
         self._scan_disk()
         for _ in range(self.settings.max_concurrent_jobs):
             self._workers.append(asyncio.create_task(self._worker()))
+        if self.settings.job_inactivity_timeout or self.settings.job_max_runtime:
+            self._watchdog_task = asyncio.create_task(self._watchdog())
         self._started = True
-        log.info("JobStore started: %d worker(s), backend=%s", len(self._workers), self.settings.agent_backend)
+        log.info(
+            "JobStore started: %d worker(s), backend=%s, watchdog=%s",
+            len(self._workers),
+            self.settings.agent_backend,
+            "on" if self._watchdog_task else "off",
+        )
 
     async def stop(self) -> None:
+        if self._watchdog_task:
+            self._watchdog_task.cancel()
+            try:
+                await self._watchdog_task
+            except (asyncio.CancelledError, Exception):
+                pass
+            self._watchdog_task = None
         for w in self._workers:
             w.cancel()
         for w in self._workers:
@@ -314,6 +341,7 @@ class JobStore:
             return
         if rec.status == STATUS_CANCELED:
             return  # canceled before the worker picked it up
+        rec.started_at = _now()
         rec.touch(STATUS_RUNNING, f"{action} agent run")
         self._save(rec)
 
@@ -330,8 +358,8 @@ class JobStore:
             rec.session_id = outcome.session_id
         rec.cost_usd = round(rec.cost_usd + (outcome.cost_usd or 0.0), 6)
 
-        # Job was canceled mid-run (agent terminated) — don't resurrect it.
-        if rec.status == STATUS_CANCELED:
+        # Already finalized by cancel or the watchdog (agent terminated) — don't resurrect it.
+        if rec.status in _TERMINAL:
             self._save(rec)
             return
 
@@ -375,6 +403,56 @@ class JobStore:
             rec.error = "agent finished without producing a final render"
             rec.touch(STATUS_FAILED, "no render produced")
             self._save(rec)
+
+    # ---- watchdog ----
+    def _last_activity_ts(self, job_id: str) -> float:
+        """Newest mtime across the job's workspace + checkpoints (its 'heartbeat')."""
+        newest = 0.0
+        for d in (self.settings.projects_dir / job_id, self.settings.pipelines_dir / job_id):
+            if not d.exists():
+                continue
+            for p in d.rglob("*"):
+                try:
+                    m = p.stat().st_mtime
+                except OSError:
+                    continue
+                if m > newest:
+                    newest = m
+        return newest
+
+    def _timeout_job(self, rec: JobRecord, reason: str) -> None:
+        rec.error = reason
+        rec.touch(STATUS_FAILED, reason)
+        self._save(rec)
+        try:
+            agent_runner.terminate(rec.job_id)  # free the worker; _apply_outcome won't resurrect it
+        except Exception:
+            log.exception("watchdog failed to terminate %s", rec.job_id)
+
+    async def _watchdog(self) -> None:
+        interval = self.settings.watchdog_interval
+        inactivity = self.settings.job_inactivity_timeout
+        max_runtime = self.settings.job_max_runtime
+        while True:
+            try:
+                await asyncio.sleep(interval)
+                now = time.time()
+                for rec in list(self._jobs.values()):
+                    if rec.status != STATUS_RUNNING:
+                        continue
+                    started = _to_epoch(rec.started_at) or _to_epoch(rec.updated_at) or now
+                    last = max(self._last_activity_ts(rec.job_id), started)
+                    if max_runtime and (now - started) > max_runtime:
+                        log.warning("watchdog: job %s exceeded max runtime %ds", rec.job_id, max_runtime)
+                        self._timeout_job(rec, f"killed by watchdog: exceeded max runtime {max_runtime}s")
+                    elif inactivity and (now - last) > inactivity:
+                        idle = int(now - last)
+                        log.warning("watchdog: job %s idle %ds (limit %ds)", rec.job_id, idle, inactivity)
+                        self._timeout_job(rec, f"killed by watchdog: no progress for {idle}s (limit {inactivity}s)")
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                log.exception("watchdog tick error")
 
     # ---- introspection ----
     def inspect_progress(self, job_id: str) -> dict:
@@ -448,6 +526,11 @@ class JobStore:
             return None
         prog = self.inspect_progress(job_id)
         arts = self.list_artifacts(job_id)
+        idle_seconds = None
+        if rec.status == STATUS_RUNNING:
+            la = self._last_activity_ts(job_id)
+            if la > 0:
+                idle_seconds = int(time.time() - la)
         return {
             "job_id": rec.job_id,
             "status": rec.status,
@@ -460,6 +543,8 @@ class JobStore:
             "error": rec.error,
             "created_at": rec.created_at,
             "updated_at": rec.updated_at,
+            "started_at": rec.started_at,
+            "idle_seconds": idle_seconds,
             "artifact_count": len(arts),
             "has_final_render": any(a["kind"] == "render" for a in arts),
         }
