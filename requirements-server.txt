@@ -1,0 +1,12 @@
+# OpenMontage - Remote API server dependencies (install on the GPU box)
+# See docs/REMOTE_API.md. Install with:  pip install -r requirements-server.txt
+-r requirements.txt
+
+starlette>=0.40          # ASGI app (also pulled in by mcp/fastapi)
+uvicorn[standard]>=0.30  # ASGI server
+mcp>=1.12                # MCP Python SDK (FastMCP streamable-HTTP control plane)
+
+# Headless agent runner backend. Only required when AGENT_BACKEND=sdk.
+# The `cli` backend uses the already-installed `claude` CLI instead, and
+# `dry_run` needs neither.
+claude-agent-sdk>=0.2.80

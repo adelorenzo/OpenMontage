@@ -24,6 +24,10 @@ tests/qa/output/
 # Project workspaces (generated assets, renders — all regenerable)
 projects/
 
+# Pipeline checkpoint workspaces (stage checkpoints + decision logs — regenerable).
+# Written at runtime, including by the remote API server (server/, docs/REMOTE_API.md).
+pipelines/
+
 # Corpus directories (downloaded stock clips, thumbnails, embeddings —
 # regenerable from source APIs via corpus_builder). Explicit rule even
 # though most corpora live under projects/ since agents sometimes

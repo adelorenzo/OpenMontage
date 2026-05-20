@@ -1,4 +1,4 @@
-.PHONY: setup install install-dev install-gpu test test-contracts lint clean preflight demo demo-list hyperframes-doctor hyperframes-warm
+.PHONY: setup install install-dev install-gpu install-server serve serve-dry test test-contracts lint clean preflight demo demo-list hyperframes-doctor hyperframes-warm
 
 # ---- One-command setup ----
 
@@ -37,6 +37,20 @@ install-dev:
 install-gpu:
 	pip install -r requirements-gpu.txt
 	pip install diffusers transformers accelerate
+
+install-server:
+	pip install -r requirements-server.txt
+
+# ---- Remote API server (see docs/REMOTE_API.md) ----
+
+serve:
+	@echo "==> Starting OpenMontage remote API (MCP /mcp + HTTP /artifacts) ..."
+	@echo "    backend=$${AGENT_BACKEND:-sdk}  host=$${OPENMONTAGE_HOST:-0.0.0.0}  port=$${OPENMONTAGE_PORT:-8787}"
+	python -m uvicorn server.app:app --host $${OPENMONTAGE_HOST:-0.0.0.0} --port $${OPENMONTAGE_PORT:-8787}
+
+# Boot with the no-LLM backend for a key-free smoke test (set OPENMONTAGE_API_TOKEN too).
+serve-dry:
+	AGENT_BACKEND=dry_run python -m uvicorn server.app:app --host $${OPENMONTAGE_HOST:-127.0.0.1} --port $${OPENMONTAGE_PORT:-8787}
 
 # ---- Testing ----
 
