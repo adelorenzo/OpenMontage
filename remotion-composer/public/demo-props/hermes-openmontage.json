@@ -1,0 +1,99 @@
+{
+  "theme": "flat-motion-graphics",
+  "renderer_family": "animation-first",
+  "cuts": [
+    {
+      "id": "scene-01-hero-title",
+      "source": "",
+      "type": "hero_title",
+      "in_seconds": 0.0,
+      "out_seconds": 2.3,
+      "text": "Hermes + OpenMontage",
+      "heroSubtitle": "Autonomous video production via AI delegation",
+      "backgroundColor": "#0F172A"
+    },
+    {
+      "id": "scene-02-text-card-delegates",
+      "source": "",
+      "type": "text_card",
+      "in_seconds": 2.3,
+      "out_seconds": 4.5,
+      "text": "Hermes delegates. OpenMontage executes.",
+      "color": "#F8FAFC",
+      "backgroundColor": "#0F172A"
+    },
+    {
+      "id": "scene-03-stat-card",
+      "source": "",
+      "type": "stat_card",
+      "in_seconds": 4.5,
+      "out_seconds": 6.9,
+      "stat": "15s",
+      "subtitle": "from job spec to final.mp4",
+      "accentColor": "#22D3EE",
+      "backgroundColor": "#0F172A"
+    },
+    {
+      "id": "scene-04-kpi-grid",
+      "source": "",
+      "type": "kpi_grid",
+      "in_seconds": 6.9,
+      "out_seconds": 10.5,
+      "title": "System Properties",
+      "columns": 2,
+      "chartData": [
+        {
+          "label": "100% Remotion",
+          "value": 100,
+          "suffix": "%"
+        },
+        {
+          "label": "Human gates",
+          "value": 0
+        },
+        {
+          "label": "Pipeline stages",
+          "value": 8
+        },
+        {
+          "label": "Render cost",
+          "value": 0,
+          "prefix": "$"
+        }
+      ],
+      "backgroundColor": "#0F172A"
+    },
+    {
+      "id": "scene-05-text-card-closing",
+      "source": "",
+      "type": "text_card",
+      "in_seconds": 10.5,
+      "out_seconds": 12.2,
+      "text": "One job. One pipeline. One final.mp4.",
+      "color": "#F8FAFC",
+      "backgroundColor": "#0F172A"
+    },
+    {
+      "id": "scene-06-end-card",
+      "source": "",
+      "type": "hero_title",
+      "in_seconds": 12.2,
+      "out_seconds": 14.0,
+      "text": "OpenMontage",
+      "heroSubtitle": "The video pipeline for autonomous agents",
+      "backgroundColor": "#0F172A"
+    }
+  ],
+  "overlays": [
+    {
+      "type": "section_title",
+      "in_seconds": 7.2,
+      "out_seconds": 10.0,
+      "text": "At a Glance",
+      "subtitle": "Key system properties",
+      "accentColor": "#22D3EE"
+    }
+  ],
+  "captions": [],
+  "audio": {}
+}
