@@ -230,6 +230,7 @@ so the remote path and the interactive path stay identical.
 | `MAX_CONCURRENT_JOBS` | `1` | GPU serialization |
 | `ANTHROPIC_API_KEY` | — | required when `AGENT_BACKEND=sdk` |
 | `OPENMONTAGE_REPO_ROOT` | repo dir | working directory handed to the agent |
+| `OPENMONTAGE_ALLOWED_HOSTS` | _(unset)_ | comma-sep `Host` allow-list for MCP DNS-rebinding protection. Unset = protection **off** (correct behind a reverse proxy / Tailscale, where the bearer token is the gate). If set, a proxied `Host` not on the list is rejected with `421 Invalid Host header`. |
 
 ---
 

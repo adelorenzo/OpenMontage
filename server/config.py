@@ -40,6 +40,7 @@ class Settings:
     projects_dir: Path            # asset/artifact/render workspaces
     pipelines_dir: Path           # checkpoint workspaces
     anthropic_api_key: str | None
+    allowed_hosts: tuple[str, ...]  # MCP Host allow-list; empty = DNS-rebinding protection off
 
     @property
     def auth_configured(self) -> bool:
@@ -61,6 +62,8 @@ def get_settings() -> Settings:
     repo_root = Path(os.environ.get("OPENMONTAGE_REPO_ROOT", str(_DEFAULT_REPO_ROOT))).resolve()
     port = _int("OPENMONTAGE_PORT", 8787)
     public_base = os.environ.get("PUBLIC_BASE_URL", f"http://localhost:{port}").rstrip("/")
+    raw_hosts = os.environ.get("OPENMONTAGE_ALLOWED_HOSTS", "").strip()
+    allowed_hosts = tuple(h.strip() for h in raw_hosts.split(",") if h.strip()) if raw_hosts else ()
     return Settings(
         api_token=os.environ.get("OPENMONTAGE_API_TOKEN", ""),
         host=os.environ.get("OPENMONTAGE_HOST", "0.0.0.0"),
@@ -75,4 +78,5 @@ def get_settings() -> Settings:
         projects_dir=repo_root / "projects",
         pipelines_dir=repo_root / "pipelines",
         anthropic_api_key=os.environ.get("ANTHROPIC_API_KEY") or None,
+        allowed_hosts=allowed_hosts,
     )

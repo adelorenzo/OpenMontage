@@ -11,6 +11,7 @@ import logging
 from typing import Optional
 
 from mcp.server.fastmcp import FastMCP
+from mcp.server.transport_security import TransportSecuritySettings
 
 from server.config import get_settings
 from server.jobs import get_store
@@ -18,7 +19,27 @@ from server.jobs import get_store
 log = logging.getLogger("openmontage.server.mcp")
 settings = get_settings()
 
-mcp = FastMCP("OpenMontage", stateless_http=True, json_response=True)
+# FastMCP auto-enables DNS-rebinding protection when bound to localhost, which
+# rejects proxied Host headers (e.g. om.dr74.net) with "Invalid Host header" (421).
+# This server is gated by a bearer token and runs behind a trusted reverse proxy /
+# private network, so host validation is off by default. Operators who want it can
+# set OPENMONTAGE_ALLOWED_HOSTS to an explicit comma-separated allow-list.
+if settings.allowed_hosts:
+    _transport_security = TransportSecuritySettings(
+        enable_dns_rebinding_protection=True,
+        allowed_hosts=list(settings.allowed_hosts),
+        allowed_origins=[f"https://{h}" for h in settings.allowed_hosts]
+        + [f"http://{h}" for h in settings.allowed_hosts],
+    )
+else:
+    _transport_security = TransportSecuritySettings(enable_dns_rebinding_protection=False)
+
+mcp = FastMCP(
+    "OpenMontage",
+    stateless_http=True,
+    json_response=True,
+    transport_security=_transport_security,
+)
 # Serve the MCP endpoint at the mount root (so the URL is /mcp, not /mcp/mcp).
 mcp.settings.streamable_http_path = "/"
 
