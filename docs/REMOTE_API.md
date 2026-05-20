@@ -127,7 +127,7 @@ registry — they hold no creative logic.
 | `get_job_status` | `job_id:str` | `{status, stage, awaiting_human, pending_checkpoint?, cost_usd, error?, artifacts[]}` | poll this |
 | `respond_to_checkpoint` | `job_id:str`, `decision:"approve"\|"revise"\|"abort"`, `notes?:str` | `{job_id, status}` | resumes the agent session |
 | `get_artifacts` | `job_id:str` | `{artifacts:[{path,kind,bytes,url}]}` | `url` points at the HTTP data plane |
-| `cancel_job` | `job_id:str` | `{job_id, status}` | best-effort; cancels queued or signals running |
+| `cancel_job` | `job_id:str` | `{job_id, status}` | cancels queued/awaiting; **terminates the running agent** (cli backend) so the worker frees and the queue keeps moving |
 
 `list_capabilities` is backed directly by `registry.provider_menu_summary()` — the same human-ready rollup the
 preflight uses — so Hermes sees exactly what a local operator would, with **zero extra glue**.

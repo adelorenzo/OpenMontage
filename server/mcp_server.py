@@ -152,9 +152,9 @@ async def get_artifacts(job_id: str) -> dict:
 
 @mcp.tool()
 async def cancel_job(job_id: str) -> dict:
-    """Cancel a job. Cancels immediately if queued or awaiting_human; best-effort
-    if already running (the in-flight agent is not force-killed in v1).
-    Returns {job_id, status}."""
+    """Cancel a job. Cancels immediately if queued or awaiting_human; if running,
+    terminates the agent process (cli backend) so the worker frees and the queue
+    keeps moving. Returns {job_id, status}."""
     store = get_store()
     try:
         rec = store.cancel(job_id)

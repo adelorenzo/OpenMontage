@@ -274,9 +274,14 @@ class JobStore:
             rec.touch(STATUS_CANCELED, "canceled by operator")
             self._save(rec)
         elif rec.status == STATUS_RUNNING:
-            # v1 cannot kill the in-flight agent subprocess; mark intent.
-            rec.touch(STATUS_CANCELED, "cancel requested while running (best-effort)")
+            rec.touch(STATUS_CANCELED, "canceled by operator (terminating agent)")
             self._save(rec)
+            # Kill the agent subprocess so the worker unblocks instead of staying
+            # stuck on an orphan (which would head-of-line-block the whole queue).
+            try:
+                agent_runner.terminate(rec.job_id)
+            except Exception:
+                log.exception("failed to terminate agent for %s", rec.job_id)
         return rec
 
     # ---- worker ----
@@ -321,6 +326,11 @@ class JobStore:
         if outcome.session_id:
             rec.session_id = outcome.session_id
         rec.cost_usd = round(rec.cost_usd + (outcome.cost_usd or 0.0), 6)
+
+        # Job was canceled mid-run (agent terminated) — don't resurrect it.
+        if rec.status == STATUS_CANCELED:
+            self._save(rec)
+            return
 
         # dry_run (and only dry_run) overrides checkpoint inspection.
         if outcome.explicit_status:

@@ -20,6 +20,8 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
+import signal
 from dataclasses import dataclass
 from shutil import which
 from typing import TYPE_CHECKING, Optional
@@ -65,6 +67,33 @@ class RunOutcome:
     explicit_status: Optional[str] = None  # dry_run only — overrides checkpoint inspection
     stage: Optional[str] = None
     pending: Optional[dict] = None
+
+
+# Live cli subprocesses by job_id, so cancel_job can terminate them and free the worker.
+_running: dict[str, asyncio.subprocess.Process] = {}
+
+
+def terminate(job_id: str) -> bool:
+    """Kill the running agent subprocess (whole process group) for a job.
+
+    Called by cancel_job so a cancel actually stops the agent and unblocks the
+    worker, instead of leaving an orphan that head-of-line-blocks the queue.
+    Returns True if a live process was signalled. (cli backend only — the sdk
+    backend has no tracked subprocess and cancel stays best-effort there.)"""
+    proc = _running.get(job_id)
+    if proc is None or proc.returncode is not None:
+        return False
+    try:
+        os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+        return True
+    except ProcessLookupError:
+        return False
+    except Exception:
+        try:
+            proc.kill()
+            return True
+        except Exception:
+            return False
 
 
 # ---- prompt construction ----
@@ -128,7 +157,7 @@ async def _dispatch(record: "JobRecord", prompt: str, settings: Settings, is_res
         return await _dry_run(record, settings, is_resume)
     resume_session = record.session_id if is_resume else None
     if backend == "cli":
-        return await _cli_run(prompt, settings, resume_session)
+        return await _cli_run(record.job_id, prompt, settings, resume_session)
     if backend == "sdk":
         return await _sdk_run(prompt, settings, resume_session)
     return RunOutcome("error", error=f"unknown AGENT_BACKEND={backend!r} (use sdk|cli|dry_run)")
@@ -217,7 +246,7 @@ def _parse_cli_json(out: bytes) -> Optional[dict]:
     return None
 
 
-async def _cli_run(prompt: str, settings: Settings, resume_session: Optional[str]) -> RunOutcome:
+async def _cli_run(job_id: str, prompt: str, settings: Settings, resume_session: Optional[str]) -> RunOutcome:
     claude = which("claude") or "claude"
     cmd = [claude, "-p", prompt, "--output-format", "json", "--model", settings.agent_model]
     if settings.agent_permission_mode in ("bypassPermissions", "bypass"):
@@ -234,10 +263,15 @@ async def _cli_run(prompt: str, settings: Settings, resume_session: Optional[str
             cwd=str(settings.repo_root),
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
+            start_new_session=True,  # own process group → cancel_job can killpg the whole tree
         )
-        out, err = await proc.communicate()
     except Exception as exc:
         return RunOutcome("error", error=f"failed to launch claude CLI: {exc}")
+    _running[job_id] = proc
+    try:
+        out, err = await proc.communicate()
+    finally:
+        _running.pop(job_id, None)
 
     data = _parse_cli_json(out)
     if data is None:
