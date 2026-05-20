@@ -10,7 +10,9 @@ the /artifacts data plane) requires `Authorization: Bearer <token>`.
 
 from __future__ import annotations
 
+import hashlib
 import hmac
+import time
 
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
@@ -21,14 +23,48 @@ def _unauthorized_body(detail: str) -> bytes:
     return json.dumps({"error": "unauthorized", "detail": detail}).encode()
 
 
+# ---- signed artifact URLs ----
+# get_artifacts returns time-limited HMAC-signed links so a remote client can
+# download a file with NO Authorization header (mcp-remote only auths MCP calls,
+# not raw GETs). The bearer header still works too.
+
+def sign_artifact(token: str, job_id: str, rel: str, exp: int) -> str:
+    msg = f"{job_id}\n{rel}\n{exp}".encode()
+    return hmac.new(token.encode(), msg, hashlib.sha256).hexdigest()
+
+
+def verify_artifact(token: str, job_id: str, rel: str, exp, sig) -> bool:
+    if not sig:
+        return False
+    try:
+        exp_i = int(exp)
+    except (TypeError, ValueError):
+        return False
+    if exp_i < int(time.time()):
+        return False
+    return hmac.compare_digest(sign_artifact(token, job_id, rel, exp_i), str(sig))
+
+
 class BearerAuthMiddleware:
-    def __init__(self, app: ASGIApp, token: str, open_paths: set[str] | None = None) -> None:
+    def __init__(
+        self,
+        app: ASGIApp,
+        token: str,
+        open_paths: set[str] | None = None,
+        open_prefixes: tuple[str, ...] | None = None,
+    ) -> None:
         self.app = app
         self.token = token
         self.open_paths = open_paths or {"/healthz"}
+        # Prefixes whose auth is enforced by the route handler (e.g. /artifacts,
+        # which accepts a bearer header OR a signed URL), so the global middleware
+        # lets them through.
+        self.open_prefixes = tuple(open_prefixes or ())
 
     def _is_open(self, path: str) -> bool:
-        return path in self.open_paths
+        if path in self.open_paths:
+            return True
+        return bool(self.open_prefixes) and path.startswith(self.open_prefixes)
 
     def _extract_bearer(self, scope: Scope) -> str | None:
         for key, value in scope.get("headers", []):

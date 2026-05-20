@@ -41,6 +41,7 @@ class Settings:
     pipelines_dir: Path           # checkpoint workspaces
     anthropic_api_key: str | None
     allowed_hosts: tuple[str, ...]  # MCP Host allow-list; empty = DNS-rebinding protection off
+    artifact_url_ttl: int           # seconds a signed artifact download URL stays valid
 
     @property
     def auth_configured(self) -> bool:
@@ -79,4 +80,5 @@ def get_settings() -> Settings:
         pipelines_dir=repo_root / "pipelines",
         anthropic_api_key=os.environ.get("ANTHROPIC_API_KEY") or None,
         allowed_hosts=allowed_hosts,
+        artifact_url_ttl=_int("OPENMONTAGE_ARTIFACT_URL_TTL", 86400),
     )

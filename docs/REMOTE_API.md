@@ -126,7 +126,7 @@ registry — they hold no creative logic.
 | `submit_video_job` | `brief:str`, `pipeline?:str`, `approval_mode?:"interactive"\|"autonomous"`, `constraints?:obj`, `budget_usd?:num` | `{job_id, status}` | creates workspace, enqueues |
 | `get_job_status` | `job_id:str` | `{status, stage, awaiting_human, pending_checkpoint?, cost_usd, error?, artifacts[]}` | poll this |
 | `respond_to_checkpoint` | `job_id:str`, `decision:"approve"\|"revise"\|"abort"`, `notes?:str` | `{job_id, status}` | resumes the agent session |
-| `get_artifacts` | `job_id:str` | `{artifacts:[{path,kind,bytes,url}]}` | `url` points at the HTTP data plane |
+| `get_artifacts` | `job_id:str` | `{artifacts:[{path,kind,bytes,url}]}` | each `url` is a **signed, header-free** download link (time-limited) on the HTTP data plane |
 | `cancel_job` | `job_id:str` | `{job_id, status}` | cancels queued/awaiting; **terminates the running agent** (cli backend) so the worker frees and the queue keeps moving |
 
 `list_capabilities` is backed directly by `registry.provider_menu_summary()` — the same human-ready rollup the
@@ -145,7 +145,10 @@ never traverse the MCP/JSON-RPC channel.
   out of the box → resumable / seekable downloads of large MP4s).
 - **Path-traversal guard:** the resolved real path must stay within the resolved `projects/<job_id>/`
   directory, else `404`.
-- Bearer-auth (same token as MCP).
+- Auth: a **bearer header OR a signed URL**. `get_artifacts` returns time-limited HMAC-signed links
+  (`?exp=&sig=`, signed with the API token, TTL `OPENMONTAGE_ARTIFACT_URL_TTL`), so a remote client
+  such as mcp-remote — which only authenticates MCP calls, not raw file GETs — can download with **no
+  Authorization header**. The bearer header still works for direct `curl`/tooling.
 
 `GET /healthz` → `{status, jobs:{...counts}, runtimes:{...}}`, **no auth** (liveness probe).
 

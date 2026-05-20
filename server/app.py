@@ -12,6 +12,7 @@ Run:  uvicorn server.app:app --host 0.0.0.0 --port 8787   (or `make serve`)
 from __future__ import annotations
 
 import contextlib
+import hmac
 import logging
 
 from starlette.applications import Starlette
@@ -20,7 +21,7 @@ from starlette.requests import Request
 from starlette.responses import FileResponse, JSONResponse
 from starlette.routing import Mount, Route
 
-from server.auth import BearerAuthMiddleware
+from server.auth import BearerAuthMiddleware, verify_artifact
 from server.config import get_settings
 from server.jobs import get_store
 from server.mcp_server import mcp
@@ -64,9 +65,23 @@ async def healthz(request: Request) -> JSONResponse:
     )
 
 
+def _artifact_authorized(request: Request, job_id: str, rel: str) -> bool:
+    """Allow a bearer header OR a valid signed URL (so remote clients can download
+    without setting an Authorization header). Open when no token is configured."""
+    token = settings.api_token
+    if not token:
+        return True
+    auth = request.headers.get("authorization", "")
+    if auth.lower().startswith("bearer ") and hmac.compare_digest(auth[7:].strip(), token):
+        return True
+    return verify_artifact(token, job_id, rel, request.query_params.get("exp"), request.query_params.get("sig"))
+
+
 async def artifact(request: Request):
     job_id = request.path_params["job_id"]
     rel = request.path_params["path"]
+    if not _artifact_authorized(request, job_id, rel):
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
     base = (settings.projects_dir / job_id).resolve()
     target = (base / rel).resolve()
     # Path-traversal guard: target must live under the job's workspace.
@@ -84,7 +99,12 @@ routes = [
 ]
 
 middleware = [
-    Middleware(BearerAuthMiddleware, token=settings.api_token, open_paths={"/healthz"}),
+    Middleware(
+        BearerAuthMiddleware,
+        token=settings.api_token,
+        open_paths={"/healthz"},
+        open_prefixes=("/artifacts/",),  # /artifacts auth handled in-route: bearer OR signed URL
+    ),
 ]
 
 app = Starlette(routes=routes, lifespan=lifespan, middleware=middleware)

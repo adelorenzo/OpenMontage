@@ -18,13 +18,16 @@ import asyncio
 import json
 import logging
 import re
+import time
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
+from urllib.parse import quote
 
 from server import agent_runner
+from server.auth import sign_artifact
 from server.config import Settings, get_settings
 
 log = logging.getLogger("openmontage.server.jobs")
@@ -411,6 +414,15 @@ class JobStore:
             awaiting = False  # a finished render outranks a stale gate
         return {"stage": stage, "awaiting": awaiting, "pending": pending, "completed": completed}
 
+    def _artifact_url(self, job_id: str, rel: str) -> str:
+        base = f"{self.settings.public_base_url}/artifacts/{job_id}/{quote(rel, safe='/')}"
+        token = self.settings.api_token
+        if not token:
+            return base  # auth disabled — plain URL
+        exp = int(time.time()) + self.settings.artifact_url_ttl
+        sig = sign_artifact(token, job_id, rel, exp)
+        return f"{base}?exp={exp}&sig={sig}"
+
     def list_artifacts(self, job_id: str) -> list[dict]:
         base = self._job_dir(job_id)
         out: list[dict] = []
@@ -425,7 +437,7 @@ class JobStore:
                     "path": rel,
                     "kind": _artifact_kind(rel),
                     "bytes": path.stat().st_size,
-                    "url": f"{self.settings.public_base_url}/artifacts/{job_id}/{rel}",
+                    "url": self._artifact_url(job_id, rel),
                 }
             )
         return out
